@@ -1,5 +1,5 @@
 from flask import Flask, request, jsonify
-from flask_cors import CORS  # ✅ ADDED: Import CORS
+from flask_cors import CORS
 import openai
 from dotenv import load_dotenv
 import os
@@ -16,7 +16,30 @@ load_dotenv()
 
 # === CONFIGURATION ===
 TIMEZONE = 'America/New_York'
-GOOGLE_CREDS_FILE = 'google_creds.json'
+
+# ✅ UPDATED: Handle Google credentials for production
+def get_google_credentials():
+    """Get Google credentials from environment or file"""
+    # Try to get credentials from environment variable (JSON string)
+    creds_json = os.getenv("GOOGLE_CREDENTIALS_JSON")
+    if creds_json:
+        try:
+            creds_dict = json.loads(creds_json)
+            return service_account.Credentials.from_service_account_info(
+                creds_dict, scopes=['https://www.googleapis.com/auth/calendar']
+            )
+        except Exception as e:
+            print(f"Error loading credentials from environment: {e}")
+    
+    # Fallback to file (for local development)
+    creds_file = os.getenv("GOOGLE_APPLICATION_CREDENTIALS", "google_creds.json")
+    if os.path.exists(creds_file):
+        return service_account.Credentials.from_service_account_file(
+            creds_file, scopes=['https://www.googleapis.com/auth/calendar']
+        )
+    
+    print("❌ No Google credentials found!")
+    return None
 
 # OpenAI client
 client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
@@ -29,16 +52,26 @@ supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 # === FLASK APP ===
 app = Flask(__name__)
 
-# ✅ ADDED: CORS configuration for Render deployment
+# ✅ UPDATED: Better CORS configuration
 CORS(app, origins=[
     "http://localhost:3000",  # Local development
-    "https://*.onrender.com"  # Allow any Render subdomain
+    "https://*.onrender.com",  # Render subdomains
+    "https://your-frontend-domain.com"  # Add your actual frontend domain
 ])
 
-# ✅ ADDED: Health check endpoint for Render
+# ✅ Health check endpoint
 @app.route('/health', methods=['GET'])
 def health_check():
     return jsonify({"status": "healthy", "message": "Voice Agent API is running"}), 200
+
+# ✅ Root endpoint for testing
+@app.route('/', methods=['GET'])
+def root():
+    return jsonify({
+        "message": "Voice Agent API", 
+        "status": "running",
+        "endpoints": ["/webhook", "/health"]
+    }), 200
 
 # -------------------------------
 # 1️⃣ Extract Lead Data from Transcript (GPT)
@@ -84,7 +117,7 @@ Transcript:
 # 2️⃣ Google Calendar Booking Logic
 # -------------------------------
 def check_for_open_slot(service, start, end, duration_minutes):
-    duration_minutes = int(duration_minutes)  # ✅ Ensure integer
+    duration_minutes = int(duration_minutes)
 
     body = {
         "timeMin": start.isoformat(),
@@ -107,7 +140,7 @@ def check_for_open_slot(service, start, end, duration_minutes):
     return None
 
 def find_open_slot(service, preferred_day=None, duration_minutes=30, time_of_day=None):
-    duration_minutes = int(duration_minutes)  # ✅ Ensure integer
+    duration_minutes = int(duration_minutes)
 
     tz = pytz.timezone(TIMEZONE)
     now = datetime.now(tz)
@@ -143,9 +176,12 @@ def find_open_slot(service, preferred_day=None, duration_minutes=30, time_of_day
     return None, None
 
 def book_google_calendar_event(name, email, preferred_day=None, time_of_day=None):
-    creds = service_account.Credentials.from_service_account_file(
-        GOOGLE_CREDS_FILE, scopes=['https://www.googleapis.com/auth/calendar']
-    )
+    # ✅ UPDATED: Use the new credentials function
+    creds = get_google_credentials()
+    if not creds:
+        print("❌ Cannot book calendar event - no credentials")
+        return None, None, None
+        
     service = build('calendar', 'v3', credentials=creds)
     start_time, end_time = find_open_slot(service, preferred_day, 30, time_of_day)
 
@@ -163,7 +199,7 @@ def book_google_calendar_event(name, email, preferred_day=None, time_of_day=None
     return created.get('htmlLink'), start_time, end_time
 
 # -------------------------------
-# 3️⃣ Webhook Endpoint with Fixed Logic
+# 3️⃣ Webhook Endpoint
 # -------------------------------
 @app.route("/webhook", methods=["POST"])
 def webhook():
@@ -181,7 +217,7 @@ def webhook():
         print("📤 GPT Response:", json.dumps(lead_data, indent=2))
 
         if isinstance(lead_data, dict) and "error" not in lead_data:
-            # ✅ Apply defaults for missing fields
+            # Apply defaults for missing fields
             name = lead_data.get("name") or "Unknown"
             phone_number = lead_data.get("phone_number") or call_info.get("from") or "Unknown"
             email = lead_data.get("email") or None
@@ -192,7 +228,7 @@ def webhook():
             lead_data["reason_for_call"] = lead_data.get("reason_for_call") or "Unknown"
             lead_data["summary"] = lead_data.get("summary") or transcript[:200]
 
-            # 🔧 FIXED: Initialize calendar fields as None/empty by default
+            # Initialize calendar fields
             lead_data["calendar_link"] = None
             lead_data["appointment_start"] = None
             lead_data["appointment_end"] = None
@@ -202,8 +238,6 @@ def webhook():
             reason = (lead_data.get("reason_for_call") or "").lower()
             prefs = (lead_data.get("appointment_preferences") or "").lower()
             time_of_day = (lead_data.get("time_of_day_preference") or "").lower()
-            
-            # 🔧 IMPROVED: Better booking detection
             appointment_details = (lead_data.get("appointment_details") or "").lower()
             
             # Check if they actually want to book
@@ -215,9 +249,6 @@ def webhook():
             )
 
             print(f"🔍 Booking Analysis:")
-            print(f"   Reason: '{reason}'")
-            print(f"   Prefs: '{prefs}'")
-            print(f"   Appointment details: '{appointment_details}'")
             print(f"   Should book: {should_book}")
             print(f"   Has name: {name != 'Unknown'}")
             print(f"   Has email: {email is not None}")
@@ -231,14 +262,13 @@ def webhook():
                     preferred_day_index = i
                     break
 
-            # 🔧 FIXED: Only book if all conditions are met
+            # Only book if all conditions are met
             if should_book and name != "Unknown" and email:
                 try:
                     calendar_link, start_time, end_time = book_google_calendar_event(
                         name, email, preferred_day_index, time_of_day
                     )
                     
-                    # Only set calendar data if booking was successful
                     if calendar_link and start_time and end_time:
                         lead_data["calendar_link"] = calendar_link
                         lead_data["appointment_start"] = start_time.isoformat()
@@ -250,7 +280,6 @@ def webhook():
                         
                 except Exception as e:
                     print(f"❌ Booking error: {e}")
-                    # Calendar fields remain None due to initialization above
             else:
                 missing_requirements = []
                 if not should_book:
@@ -262,7 +291,7 @@ def webhook():
                     
                 print(f"⚠️ No booking created: {', '.join(missing_requirements)}")
 
-            # ✅ Always save the lead (with correct appointment status)
+            # Always save the lead
             try:
                 result = supabase.table("leads").insert(lead_data).execute()
                 print(f"💾 Lead saved to database")
@@ -273,12 +302,20 @@ def webhook():
 
     return jsonify({"status": "ignored"})
 
-# ✅ UPDATED: Main section for Render deployment
+# ✅ UPDATED: Production-ready main section
 if __name__ == "__main__":
-    # Render deployment configuration
-    port = int(os.environ.get("PORT", 3000))  # Keep your preferred port as fallback
+    port = int(os.environ.get("PORT", 5000))
     debug_mode = os.environ.get("FLASK_ENV") == "development"
     
     print(f"🚀 Starting Voice Agent API on port {port}")
     print(f"🔧 Debug mode: {debug_mode}")
+    
+    # Check required environment variables
+    required_vars = ["OPENAI_API_KEY", "SUPABASE_URL", "SUPABASE_KEY"]
+    missing_vars = [var for var in required_vars if not os.getenv(var)]
+    if missing_vars:
+        print(f"❌ Missing environment variables: {missing_vars}")
+    else:
+        print("✅ All required environment variables present")
+    
     app.run(host="0.0.0.0", port=port, debug=debug_mode)
