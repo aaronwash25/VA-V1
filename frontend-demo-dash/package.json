@@ -1,15 +1,13 @@
 {
-
   "name": "frametech-demo-dash",
   "version": "0.1.0",
   "private": true,
   "scripts": {
-  "dev": "next dev",
-  "build": "next build",
-  "start": "next start",
-  "lint": "next lint",
-  "export": "next export"
-},
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "export": "next export"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.54.0",
@@ -26,6 +24,3 @@
     "tailwindcss": "^4"
   }
 }
-
-
-	
