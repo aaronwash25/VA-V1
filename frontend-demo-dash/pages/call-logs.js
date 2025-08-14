@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import Sidebar from '../components/Sidebar'
+import sidebar from '../components/sidebar'
 import { supabase } from '../lib/supabaseClient'
 
 export default function CallLogsPage() {
@@ -17,7 +17,7 @@ export default function CallLogsPage() {
 
   return (
     <div style={{ display: 'flex' }}>
-      <Sidebar />
+      <sidebar />
       <main style={{ marginLeft: 220, padding: 20, width: '100%', minHeight: '100vh', backgroundColor: '#e0f2fe' }}>
         <h1 style={{ fontSize: 28, fontWeight: 'bold', marginBottom: 20, color: '#000' }}>Call Logs</h1>
 
