@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import sidebar from '../components/sidebar'
+import Sidebar from '../components/sidebar'
 import { supabase } from '../lib/supabaseClient'
 
 export default function LeadsPage() {
@@ -54,7 +54,7 @@ export default function LeadsPage() {
 
   return (
     <div style={{ display: 'flex' }}>
-      <sidebar />
+      <Sidebar />
       <main style={{ marginLeft: 220, padding: 20, width: '100%', minHeight: '100vh', backgroundColor: '#e0f2fe' }}>
         <h1 style={{ fontSize: 28, fontWeight: 'bold', marginBottom: 20, color: '#000' }}>Leads</h1>
         <LeadsTable title="🔥 Hot Leads" color="#fecaca" list={hotLeads} />
